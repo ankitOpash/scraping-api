@@ -23,7 +23,7 @@ load_dotenv()
 
 agentql_api_key = os.getenv("AGENTQL_API_KEY")
 
-
+scraping_active = False
 
 # Then initialize agentql
 # agentql.init(api_key="Zx6nE7zqOlctLn8R7uarLucmzncIGjHCQhRRmzIKY0xvuvrsb5zdxQ")
@@ -169,7 +169,7 @@ def scrape_ecommerce_realtime(url,max_pages,db):
 
         page_count = 0  # Counter to track the number of pages scraped
 
-        while True:
+        while scraping_active:  # Only scrape while the stop flag allows
             page.wait_for_page_ready_state()
 
             # Fetch product listings from the current page
@@ -293,3 +293,11 @@ async def download_csv():
     """API endpoint to download the CSV file."""
     file_path = "car_listings.csv"
     return FileResponse(file_path, filename="car_listings.csv")
+
+@app.post("/api/stop-scraping")
+async def stop_scraping():
+    """Stop scraping safely."""
+    global scraping_active
+    scraping_active = False
+    log_queue.put("Scraping has been stopped.")
+    return {"message": "Scraping stopped successfully."}
