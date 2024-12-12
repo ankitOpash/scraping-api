@@ -15,7 +15,19 @@ import queue
 # Query for listings with additional seller details
 from app.database import get_db
 from app.models import Document
+import os
+from dotenv import load_dotenv
 
+
+load_dotenv()
+
+agentql_api_key = os.getenv("AGENTQL_API_KEY")
+
+
+
+# Then initialize agentql
+# agentql.init(api_key="Zx6nE7zqOlctLn8R7uarLucmzncIGjHCQhRRmzIKY0xvuvrsb5zdxQ")
+print("agentql_api_key", agentql_api_key)
 
 if sys.platform.startswith('win'):
        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -177,10 +189,17 @@ def scrape_ecommerce_realtime(url,max_pages,db):
                             detail_page.goto(product["car_url"])
                             detail_response = detail_page.query_data(QUERY_DETAILS)
                             detail_page.close()
+                            
 
                             # Merge additional details into the product record
                             if detail_response.get("productDetails"):
                                 product_details.update(detail_response["productDetails"])
+                                
+                                seller_name = detail_response["productDetails"].get("seller_name", "").strip()
+                                if seller_name.lower() != "owner":
+                                    product_details["seller_name"] = seller_name
+                                else:
+                                    product_details["seller_name"] = "Unknown"  # Set to "Unknown" if it's "Owner"
                             else:
                                 print("No additional details found for this product.")
                                 log_queue.put(f"No additional details found for this product.")
@@ -190,7 +209,7 @@ def scrape_ecommerce_realtime(url,max_pages,db):
 
                     # Save the product data to CSV in real time
                     # save_to_csv_realtime(product_details)
-                    save_to_csv_and_db(product, db)
+                    save_to_csv_and_db(product_details, db)
 
             # Increment the page counter
             page_count += 1
@@ -230,6 +249,9 @@ def scrape_ecommerce_realtime(url,max_pages,db):
 #         max_pages = int(input("How many pages do you want to scrape? ").strip())
 
 #     scrape_ecommerce_realtime(start_url, max_pages)
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to the opash Web Scraping API"}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
