@@ -1,4 +1,4 @@
-### 3. Create a Virtual Environment
+### 1. Create a Virtual Environment
 
 Create and activate a virtual environment:
 
@@ -18,7 +18,7 @@ For macOS/Linux:
 source venv/bin/activate
 ```
 
-### 4. Install Dependencies
+### 2. Install Dependencies
 
 Install the required Python packages:
 
@@ -26,7 +26,7 @@ Install the required Python packages:
 pip install -r requirements.txt
 ```
 
-### 5. Initialize the Database
+### 3. Initialize the Database
 
 Run the ORM to create tables in the database:
 
@@ -34,7 +34,7 @@ Run the ORM to create tables in the database:
 python init_db.py
 ```
 
-### 6. Run the Backend Project
+### 4. Run the Backend Project
 
 Start the FastAPI server:
 
@@ -42,7 +42,7 @@ Start the FastAPI server:
 uvicorn app.main:app --reload
 ```
 
-### 7.for agentql set api key
+### 5.for agentql set api key
 ```bash
 $env:AGENTQL_API_KEY="your-api-key"
 ```
