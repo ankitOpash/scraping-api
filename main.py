@@ -23,7 +23,7 @@ load_dotenv()
 
 agentql_api_key = os.getenv("AGENTQL_API_KEY")
 
-scraping_active = False
+scraping_active = True
 
 # Then initialize agentql
 # agentql.init(api_key="Zx6nE7zqOlctLn8R7uarLucmzncIGjHCQhRRmzIKY0xvuvrsb5zdxQ")
@@ -159,7 +159,7 @@ def scrape_ecommerce_realtime(url,max_pages,db):
     """Scrape an e-commerce website for car listings and details."""
     with sync_playwright() as playwright:
         # Launch the browser in headless mode
-        browser = playwright.chromium.launch(headless=False)
+        browser = playwright.chromium.launch(headless=True)
         page = agentql.wrap(browser.new_page())
 
         # Navigate to the URL
