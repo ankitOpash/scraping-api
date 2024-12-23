@@ -39,7 +39,7 @@ python init_db.py
 Start the FastAPI server:
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn main:app --reload
 ```
 
 ### 5.for agentql set api key
