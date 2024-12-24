@@ -27,7 +27,7 @@ load_dotenv()
 
 agentql_api_key = os.getenv("AGENTQL_API_KEY")
 
-scraping_active = True
+scraping_active = False
 
 # List to keep track of all active scraping processes
 active_processes = []
@@ -138,77 +138,82 @@ def save_to_csv_and_db(product, db: Session, filename='car_listings.csv'):
 
 def scrape_ecommerce_realtime(url, max_pages):
     """Scrape an e-commerce website for car listings and details."""
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
-        page = agentql.wrap(browser.new_page())
+    global scraping_active
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = agentql.wrap(browser.new_page())
 
-        page.goto(url)
-        print("Loading first page...")
-        log_queue.put("Loading first page...")
+            page.goto(url)
+            logger.info("Loading first page...")
+            log_queue.put("Loading first page...")
 
-        page_count = 0
+            page_count = 0
 
-        while scraping_active:
-            page.wait_for_page_ready_state()
+            while scraping_active:
+                page.wait_for_page_ready_state()
 
-            print(f"Fetching product listings from page {page_count + 1}...")
-            log_queue.put(f"Fetching product listings from page {page_count + 1}...")
-            response = page.query_data(QUERY_LISTINGS)
+                logger.info(f"Fetching product listings from page {page_count + 1}...")
+                log_queue.put(f"Fetching product listings from page {page_count + 1}...")
+                response = page.query_data(QUERY_LISTINGS)
 
-            if response.get("products"):
-                for product in response["products"]:
-                    product_details = product.copy()
-                    if product.get("car_url"):
-                        try:
-                            print(f"Visiting detail page: {product['car_url']}")
-                            log_queue.put(f"Visiting detail page: {product['car_url']}")
-                            detail_page = agentql.wrap(browser.new_page())
-                            detail_page.goto(product["car_url"])
-                            detail_response = detail_page.query_data(QUERY_DETAILS)
-                            detail_page.close()
+                if response.get("products"):
+                    for product in response["products"]:
+                        product_details = product.copy()
+                        if product.get("car_url"):
+                            try:
+                                logger.info(f"Visiting detail page: {product['car_url']}")
+                                log_queue.put(f"Visiting detail page: {product['car_url']}")
+                                detail_page = agentql.wrap(browser.new_page())
+                                detail_page.goto(product["car_url"])
+                                detail_response = detail_page.query_data(QUERY_DETAILS)
+                                detail_page.close()
 
-                            if detail_response.get("productDetails"):
-                                product_details.update(detail_response["productDetails"])
-                                seller_name = detail_response["productDetails"].get("seller_name", "").strip()
-                                if seller_name.lower() != "owner":
-                                    product_details["seller_name"] = seller_name
+                                if detail_response.get("productDetails"):
+                                    product_details.update(detail_response["productDetails"])
+                                    seller_name = detail_response["productDetails"].get("seller_name", "").strip()
+                                    if seller_name.lower() != "owner":
+                                        product_details["seller_name"] = seller_name
+                                    else:
+                                        product_details["seller_name"] = "Unknown"
                                 else:
-                                    product_details["seller_name"] = "Unknown"
-                            else:
-                                print("No additional details found for this product.")
-                                log_queue.put(f"No additional details found for this product.")
-                        except Exception as e:
-                            print(f"Error fetching details for {product['car_url']}: {e}")
-                            log_queue.put(f"Error fetching details for {product['car_url']}: {e}")
+                                    logger.info("No additional details found for this product.")
+                                    log_queue.put(f"No additional details found for this product.")
+                            except Exception as e:
+                                logger.error(f"Error fetching details for {product['car_url']}: {e}")
+                                log_queue.put(f"Error fetching details for {product['car_url']}: {e}")
 
-                    # Save to CSV and DB should be called with a new session
-                    with get_db() as db:
-                        save_to_csv_and_db(product_details, db)
+                        # Use the context manager to get a database session
+                        with get_db() as db:
+                            save_to_csv_and_db(product_details, db)
 
-            page_count += 1
+                page_count += 1
 
-            if page_count >= max_pages:
-                print(f"Reached the specified page limit of {max_pages}.")
-                break
-
-            try:
-                next_button = page.locator("text='Next'")
-                if next_button.is_visible():
-                    next_button.click()
-                    print("Navigating to the next page...")
-                    log_queue.put(f"Navigating to the next page...")
-                else:
-                    print("No more pages. Ending pagination.")
-                    log_queue.put(f"No more pages. Ending pagination.")
+                if page_count >= max_pages:
+                    logger.info(f"Reached the specified page limit of {max_pages}.")
                     break
-            except Exception as e:
-                print(f"Pagination ended with error: {e}")
-                log_queue.put(f"Pagination ended with error: {e}")
-                break
 
-        browser.close()
-        print("Scraping completed.")
-        log_queue.put(f"Scraping completed.")
+                try:
+                    next_button = page.locator("text='Next'")
+                    if next_button.is_visible():
+                        next_button.click()
+                        logger.info("Navigating to the next page...")
+                        log_queue.put(f"Navigating to the next page...")
+                    else:
+                        logger.info("No more pages. Ending pagination.")
+                        log_queue.put(f"No more pages. Ending pagination.")
+                        break
+                except Exception as e:
+                    logger.error(f"Pagination ended with error: {e}")
+                    log_queue.put(f"Pagination ended with error: {e}")
+                    break
+
+            browser.close()
+            logger.info("Scraping completed.")
+            log_queue.put(f"Scraping completed.")
+    except Exception as e:
+        logger.error(f"Error during scraping: {e}")
+        log_queue.put(f"Error during scraping: {e}")
 
 @app.get("/")
 def read_root():
@@ -227,10 +232,15 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.post("/api/scrape")
 async def scrape_endpoint(background_tasks: BackgroundTasks, url: str, max_pages: int):
     """Endpoint to start scraping in the background."""
+    global scraping_active
     try:
         if any(p.is_alive() for p in active_processes):
             raise HTTPException(status_code=400, detail="Scraping is already running.")
         
+        # Reset the scraping_active flag
+        scraping_active = True
+        
+        # Start the scraping process
         scraping_process = multiprocessing.Process(target=scrape_ecommerce_realtime, args=(url, max_pages))
         scraping_process.start()
         active_processes.append(scraping_process)
