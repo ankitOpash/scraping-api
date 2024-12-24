@@ -27,14 +27,15 @@ load_dotenv()
 
 agentql_api_key = os.getenv("AGENTQL_API_KEY")
 
-scraping_active = False
+scraping_active = True
 
 # List to keep track of all active scraping processes
 active_processes = []
 
 # Initialize agentql
-print("agentql_api_key", agentql_api_key)
+#logger.info(f"agentql_api_key {agentql_api_key}")
 
+# Set the appropriate event loop policy for Windows
 if sys.platform.startswith('win'):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -49,7 +50,7 @@ app.add_middleware(
 )
 
 # Queue for log messages
-log_queue = queue.Queue()
+log_queue = multiprocessing.Queue()
 
 # Connection Manager for WebSocket handling
 class ConnectionManager:
@@ -60,10 +61,13 @@ class ConnectionManager:
         """Accept and store the WebSocket connection."""
         await websocket.accept()
         self.active_connections.append(websocket)
+        logger.info("WebSocket connection established.")
 
     def disconnect(self, websocket: WebSocket):
         """Remove the disconnected WebSocket."""
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            # logger.info("WebSocket connection closed.")
 
     async def broadcast(self, message: str):
         """Send a message to all active WebSocket connections."""
@@ -71,7 +75,8 @@ class ConnectionManager:
             try:
                 await connection.send_text(message)
             except Exception as e:
-                print(f"")
+                # logger.error(f"Error sending message: {e}")
+                self.disconnect(connection)
 
 manager = ConnectionManager()
 
@@ -112,31 +117,19 @@ QUERY_DETAILS = """
 }
 """
 
-def save_to_csv_realtime(product, filename='car_listings.csv'):
-    """Append a single product's data to the CSV file."""
-    with open(filename, mode='a', newline='', encoding='utf-8') as file:
-        writer = csv.DictWriter(file, fieldnames=product.keys())
-        # Write headers only if the file is empty
-        if file.tell() == 0:
-            writer.writeheader()
-        writer.writerow(product)
-        
-        
-def save_to_csv_and_db(product, db: Session, filename='car_listings.csv'):
+def save_to_csv_and_db(product, db, filename='car_listings.csv'):
     """Save data to CSV and database."""
-    # Save to CSV
     with open(filename, mode='a', newline='', encoding='utf-8') as file:
         writer = csv.DictWriter(file, fieldnames=product.keys())
         if file.tell() == 0:
             writer.writeheader()
         writer.writerow(product)
 
-    # Save to database
     db_product = Document(**product)
     db.add(db_product)
     db.commit()
 
-def scrape_ecommerce_realtime(url, max_pages):
+def scrape_ecommerce_realtime(url, max_pages, log_queue):
     """Scrape an e-commerce website for car listings and details."""
     global scraping_active
     try:
@@ -145,16 +138,16 @@ def scrape_ecommerce_realtime(url, max_pages):
             page = agentql.wrap(browser.new_page())
 
             page.goto(url)
-            logger.info("Loading first page...")
             log_queue.put("Loading first page...")
+            logger.info("Loading first page...")
 
             page_count = 0
 
-            while scraping_active:
+            while scraping_active and page_count < max_pages:
                 page.wait_for_page_ready_state()
 
-                logger.info(f"Fetching product listings from page {page_count + 1}...")
                 log_queue.put(f"Fetching product listings from page {page_count + 1}...")
+                logger.info(f"Fetching product listings from page {page_count + 1}...")
                 response = page.query_data(QUERY_LISTINGS)
 
                 if response.get("products"):
@@ -162,8 +155,8 @@ def scrape_ecommerce_realtime(url, max_pages):
                         product_details = product.copy()
                         if product.get("car_url"):
                             try:
-                                logger.info(f"Visiting detail page: {product['car_url']}")
                                 log_queue.put(f"Visiting detail page: {product['car_url']}")
+                                logger.info(f"Visiting detail page: {product['car_url']}")
                                 detail_page = agentql.wrap(browser.new_page())
                                 detail_page.goto(product["car_url"])
                                 detail_response = detail_page.query_data(QUERY_DETAILS)
@@ -177,11 +170,11 @@ def scrape_ecommerce_realtime(url, max_pages):
                                     else:
                                         product_details["seller_name"] = "Unknown"
                                 else:
+                                    log_queue.put("No additional details found for this product.")
                                     logger.info("No additional details found for this product.")
-                                    log_queue.put(f"No additional details found for this product.")
                             except Exception as e:
-                                logger.error(f"Error fetching details for {product['car_url']}: {e}")
                                 log_queue.put(f"Error fetching details for {product['car_url']}: {e}")
+                                logger.error(f"Error fetching details for {product['car_url']}: {e}")
 
                         # Use the context manager to get a database session
                         with get_db() as db:
@@ -190,6 +183,7 @@ def scrape_ecommerce_realtime(url, max_pages):
                 page_count += 1
 
                 if page_count >= max_pages:
+                    log_queue.put(f"Reached the specified page limit of {max_pages}.")
                     logger.info(f"Reached the specified page limit of {max_pages}.")
                     break
 
@@ -197,27 +191,36 @@ def scrape_ecommerce_realtime(url, max_pages):
                     next_button = page.locator("text='Next'")
                     if next_button.is_visible():
                         next_button.click()
+                        log_queue.put("Navigating to the next page...")
                         logger.info("Navigating to the next page...")
-                        log_queue.put(f"Navigating to the next page...")
                     else:
+                        log_queue.put("No more pages. Ending pagination.")
                         logger.info("No more pages. Ending pagination.")
-                        log_queue.put(f"No more pages. Ending pagination.")
                         break
                 except Exception as e:
-                    logger.error(f"Pagination ended with error: {e}")
                     log_queue.put(f"Pagination ended with error: {e}")
+                    logger.error(f"Pagination ended with error: {e}")
                     break
 
             browser.close()
+            log_queue.put("Scraping completed.")
             logger.info("Scraping completed.")
-            log_queue.put(f"Scraping completed.")
     except Exception as e:
-        logger.error(f"Error during scraping: {e}")
         log_queue.put(f"Error during scraping: {e}")
+        logger.error(f"Error during scraping: {e}")
 
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to the opash Web Scraping API"}
+async def consume_logs():
+    """Consume logs from the queue and broadcast them."""
+    while True:
+        if not log_queue.empty():
+            message = log_queue.get()
+            await manager.broadcast(message)
+        await asyncio.sleep(0.1)
+
+@app.on_event("startup")
+async def startup_event():
+    """Start the log consumer on application startup."""
+    asyncio.create_task(consume_logs())
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -230,7 +233,7 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 @app.post("/api/scrape")
-async def scrape_endpoint(background_tasks: BackgroundTasks, url: str, max_pages: int):
+async def scrape_endpoint(url: str, max_pages: int):
     """Endpoint to start scraping in the background."""
     global scraping_active
     try:
@@ -241,7 +244,7 @@ async def scrape_endpoint(background_tasks: BackgroundTasks, url: str, max_pages
         scraping_active = True
         
         # Start the scraping process
-        scraping_process = multiprocessing.Process(target=scrape_ecommerce_realtime, args=(url, max_pages))
+        scraping_process = multiprocessing.Process(target=scrape_ecommerce_realtime, args=(url, max_pages, log_queue))
         scraping_process.start()
         active_processes.append(scraping_process)
         
@@ -249,21 +252,6 @@ async def scrape_endpoint(background_tasks: BackgroundTasks, url: str, max_pages
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# @app.post("/api/stop-scraping")
-# async def stop_scraping():
-#     """Stop all scraping processes safely."""
-#     global scraping_active
-#     scraping_active = False
-#     log_queue.put("Scraping has been stopped.")
-    
-#     for process in active_processes:
-#         if process.is_alive():
-#             process.terminate()
-#             process.join()
-    
-#     active_processes.clear()
-    
-#     return {"message": "All scraping processes stopped successfully."}
 @app.post("/api/stop-scraping")
 async def stop_scraping():
     """Stop all scraping processes safely."""
@@ -288,19 +276,6 @@ async def stop_scraping():
     active_processes.clear()
     
     return {"message": "All scraping processes stopped successfully."}
-
-async def consume_logs():
-    """Consume logs from the queue and broadcast them."""
-    while True:
-        if not log_queue.empty():
-            message = log_queue.get()
-            await manager.broadcast(message)
-        await asyncio.sleep(0.1)
-
-@app.on_event("startup")
-async def startup_event():
-    """Start the log consumer on application startup."""
-    asyncio.create_task(consume_logs())
 
 @app.get("/api/download")
 async def download_csv():
