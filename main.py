@@ -1,5 +1,6 @@
 import agentql
 import csv
+import logging
 from playwright.sync_api import sync_playwright
 
 from sqlalchemy.orm import Session
@@ -16,6 +17,11 @@ from app.database import get_db
 from app.models import Document
 import os
 from dotenv import load_dotenv
+
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -233,17 +239,41 @@ async def scrape_endpoint(background_tasks: BackgroundTasks, url: str, max_pages
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# @app.post("/api/stop-scraping")
+# async def stop_scraping():
+#     """Stop all scraping processes safely."""
+#     global scraping_active
+#     scraping_active = False
+#     log_queue.put("Scraping has been stopped.")
+    
+#     for process in active_processes:
+#         if process.is_alive():
+#             process.terminate()
+#             process.join()
+    
+#     active_processes.clear()
+    
+#     return {"message": "All scraping processes stopped successfully."}
 @app.post("/api/stop-scraping")
 async def stop_scraping():
     """Stop all scraping processes safely."""
     global scraping_active
+    if not any(p.is_alive() for p in active_processes):
+        return {"message": "No scraping processes are currently running."}
+
     scraping_active = False
     log_queue.put("Scraping has been stopped.")
     
     for process in active_processes:
         if process.is_alive():
+            logger.info(f"Terminating process {process.pid}")
             process.terminate()
-            process.join()
+            process.join(timeout=5)  # Wait for up to 5 seconds for the process to terminate
+            if process.is_alive():
+                logger.warning(f"Process {process.pid} did not terminate, killing it.")
+                process.kill()  # Forcefully kill the process if it didn't terminate
+                process.join()  # Ensure the process is reaped
+            logger.info(f"Process {process.pid} terminated.")
     
     active_processes.clear()
     
