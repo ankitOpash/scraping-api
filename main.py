@@ -65,7 +65,7 @@ class ConnectionManager:
             try:
                 await connection.send_text(message)
             except Exception as e:
-                print(f"Error sending message: {e}")
+                print(f"")
 
 manager = ConnectionManager()
 
@@ -268,8 +268,18 @@ async def download_csv():
     file_path = "car_listings.csv"
     return FileResponse(file_path, filename="car_listings.csv")
 
+
 if __name__ == "__main__":
-    # This ensures that the multiprocessing code is only executed when the script is run directly
-    multiprocessing.set_start_method('spawn', force=True)
+    # Set the start method for multiprocessing
+    if sys.platform.startswith('win'):
+        multiprocessing.set_start_method('spawn', force=True)
+    else:
+        multiprocessing.set_start_method('fork', force=True)
+    
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+# if __name__ == "__main__":
+#     # This ensures that the multiprocessing code is only executed when the script is run directly
+#     multiprocessing.set_start_method('spawn')
+#     import uvicorn
+#     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
