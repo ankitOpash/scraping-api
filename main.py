@@ -231,6 +231,10 @@ async def websocket_endpoint(websocket: WebSocket):
             await asyncio.sleep(1)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+        
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to the opash Web Scraping API"}
 
 @app.post("/api/scrape")
 async def scrape_endpoint(url: str, max_pages: int):
