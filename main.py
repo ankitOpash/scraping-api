@@ -118,20 +118,47 @@ QUERY_DETAILS = """
 }
 """
 
-def save_to_csv_and_db(product, db, filename='car_listings.csv'):
-    """Save data to CSV and database."""
-    with open(filename, mode='a', newline='', encoding='utf-8') as file:
-        writer = csv.DictWriter(file, fieldnames=product.keys())
-        if file.tell() == 0:
-            writer.writeheader()
-        writer.writerow(product)
+# def save_to_csv_and_db(product, db, filename='car_listings.csv'):
+#     """Save data to CSV and database."""
+#     with open(filename, mode='a', newline='', encoding='utf-8') as file:
+#         writer = csv.DictWriter(file, fieldnames=product.keys())
+#         if file.tell() == 0:
+#             writer.writeheader()
+#         writer.writerow(product)
 
-    db_product = Document(**product)
-    db.add(db_product)
-    db.commit()
+#     db_product = Document(**product)
+#     db.add(db_product)
+#     db.commit()
+def save_to_csv_and_db(product, filename='car_listings.csv'):
+    """Save data to CSV and database."""
+    # Save to CSV
+    try:
+        with open(filename, mode='a', newline='', encoding='utf-8') as file:
+            writer = csv.DictWriter(file, fieldnames=product.keys())
+            if file.tell() == 0:
+                writer.writeheader()
+            writer.writerow(product)
+    except Exception as e:
+        logger.error(f"Error writing to CSV: {e}")
+
+    # Save to Database
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db_product = Document(**product)
+        db.add(db_product)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error inserting product into database: {e}")
+    finally:
+        db.close()
+
+        
 
 def scrape_ecommerce_realtime(url, max_pages, log_queue):
     """Scrape an e-commerce website for car listings and details."""
+   
     global scraping_active
     try:
         with sync_playwright() as playwright:
@@ -294,12 +321,12 @@ async def download_csv():
 async def get_data_from_db():
     """Endpoint to retrieve data from the database."""
     with get_db() as db:
-        # Acquire the lock before querying the database
-        db_lock.acquire()
-        data = db.query(Document).all()
-        # Release the lock after querying is done
-        db_lock.release()
-        return {"data": [item.__dict__ for item in data]}
+        try:
+            data = db.query(Document).all()
+            return {"data": [item.__dict__ for item in data]}
+        except Exception as e:
+            logger.error(f"Error reading data: {e}")
+            raise HTTPException(status_code=500, detail="Failed to fetch data.")
 
 if __name__ == "__main__":
     # Set the start method for multiprocessing

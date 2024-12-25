@@ -1,17 +1,24 @@
-import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from dotenv import load_dotenv
 from contextlib import contextmanager
-# from .config import settings
+import os
+from dotenv import load_dotenv
 
-# Load environment variables from a .env file
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-engine = create_engine(DATABASE_URL, connect_args={"sslmode": "prefer"})
+# Adjust connection pool size and overflow for better concurrency
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"sslmode": "prefer"},
+    pool_size=20,  # Increase pool size for concurrent access
+    max_overflow=10,  # Allow overflow for burst loads
+    pool_timeout=30,  # Wait time before giving up on a connection
+    pool_recycle=1800,  # Recycle connections every 30 minutes
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
