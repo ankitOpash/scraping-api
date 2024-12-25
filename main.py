@@ -287,6 +287,14 @@ async def download_csv():
     file_path = "car_listings.csv"
     return FileResponse(file_path, filename="car_listings.csv")
 
+# New endpoint to fetch data from the database
+
+@app.get("/api/get-data")
+async def get_data_from_db():
+    """Endpoint to retrieve data from the database."""
+    with get_db() as db:
+        data = db.query(Document).all()
+        return {"data": [item.__dict__ for item in data]}
 
 if __name__ == "__main__":
     # Set the start method for multiprocessing
