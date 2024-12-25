@@ -19,6 +19,7 @@ import os
 from dotenv import load_dotenv
 
 
+db_lock = multiprocessing.Lock()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -293,7 +294,11 @@ async def download_csv():
 async def get_data_from_db():
     """Endpoint to retrieve data from the database."""
     with get_db() as db:
+        # Acquire the lock before querying the database
+        db_lock.acquire()
         data = db.query(Document).all()
+        # Release the lock after querying is done
+        db_lock.release()
         return {"data": [item.__dict__ for item in data]}
 
 if __name__ == "__main__":
