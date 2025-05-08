@@ -25,6 +25,8 @@ Install the required Python packages:
 ```bash
 pip install -r requirements.txt
 ```
+###
+playwright install
 
 ### 3. Initialize the Database
 

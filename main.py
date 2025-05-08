@@ -1,3 +1,4 @@
+import utils.session
 import agentql
 import csv
 from playwright.sync_api import sync_playwright
